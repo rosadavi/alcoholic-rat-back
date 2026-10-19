@@ -16,11 +16,11 @@ public class TokenService {
     private static final String ISSUER = "alcoholic-rat";
 
     private final Algorithm algorithm;
-    private final Duration expriation;
+    private final Duration expiration;
 
-    public TokenService(@Value("$(app.jwt.secret)") String secret, @Value("$(app.jwt.expiration-hours)") long expirationHours) {
+    public TokenService(@Value("${app.jwt.secret}") String secret, @Value("${app.jwt.expiration-hours}") long expirationHours) {
         this.algorithm = Algorithm.HMAC256(secret);
-        this.expriation = Duration.ofHours(expirationHours);
+        this.expiration = Duration.ofHours(expirationHours);
     }
 
     public String generateToken(User user) {
@@ -28,7 +28,7 @@ public class TokenService {
                 .withIssuer(ISSUER)
                 .withSubject(user.getLogin())
                 .withIssuedAt(Instant.now())
-                .withExpiresAt(Instant.now().plus(expriation))
+                .withExpiresAt(Instant.now().plus(expiration))
                 .sign(algorithm);
     }
 
