@@ -17,13 +17,22 @@ import java.util.List;
 @Entity(name="users")
 @Getter
 @AllArgsConstructor
+@NoArgsConstructor
 @EqualsAndHashCode(of="id")
 public class User implements UserDetails {
+    public User (String login, String password, UserRole role) {
+        this.login = login;
+        this.password = password;
+        this.role = role;
+    }
+
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
     private String login;
     private String password;
+    
+    @Enumerated(EnumType.STRING)
     private UserRole role;
 
     @Override
@@ -37,7 +46,7 @@ public class User implements UserDetails {
 
     @Override
     public @Nullable String getPassword() {
-        return getPassword();
+        return password;
     }
 
     @Override
