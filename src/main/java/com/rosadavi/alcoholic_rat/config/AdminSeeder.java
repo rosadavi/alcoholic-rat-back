@@ -32,11 +32,13 @@ public class AdminSeeder implements ApplicationRunner {
             return;
         }
 
-        if(repository.existsByLogin(adminEmail)) {
+        String email = adminEmail.trim().toLowerCase();
+
+        if(repository.existsByLogin(email)) {
             return;
         }
 
-        repository.save(new User(adminEmail.trim().toLowerCase(), passwordEncoder.encode(adminPassword), UserRole.ADMIN));
-        log.info("Admin user created with email: {}", adminEmail);
+        repository.save(new User(email, passwordEncoder.encode(adminPassword), UserRole.ADMIN));
+        log.info("Admin user created with email: {}", email);
     }
 }
