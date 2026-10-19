@@ -2,12 +2,12 @@
 
 SaaS para publicação de imagens com metadados. O usuário envia uma imagem acompanhada de metadados, o sistema armazena ambos e, a partir deles, monta um **feed** com as imagens e suas informações.
 
-> **Status:** estágio inicial. Já existem o cadastro de usuários com papéis e um seed que cria o administrador inicial. A autenticação (JWT) ainda não foi implementada, e o upload de imagens, os metadados e o feed também não.
+> **Status:** estágio inicial. Já existem o cadastro de usuários (`POST /auth/register`) e um seed que cria o administrador inicial. O login com JWT ainda não foi implementado, e o upload de imagens, os metadados e o feed também não.
 
 ## Stack
 
 - Java 21
-- Spring Boot 4.1.1 (Web MVC, Data JPA, Security)
+- Spring Boot 4.1.1 (Web MVC, Data JPA, Security, Validation)
 - PostgreSQL
 - Lombok
 - Maven (wrapper incluso: `./mvnw`)
@@ -95,28 +95,69 @@ Em toda inicialização, o `AdminSeeder` roda uma vez, depois que a aplicação 
 
 1. Se `ADMIN_EMAIL` ou `ADMIN_PASSWORD` estiverem vazios, registra um aviso no log e não faz nada.
 2. Se já existir um usuário com esse login, não faz nada. Ele também **não** atualiza a senha caso ela mude no `.env`.
-3. Caso contrário, cria o usuário com papel `ADMIN` e a senha com hash BCrypt.
+3. Caso contrário, cria o usuário com papel `ADMIN`, login em minúsculas e sem espaços, e a senha com hash BCrypt.
 
 Para recriar o admin, apague o registro em `users` e reinicie a aplicação.
+
+## Cadastro de usuários
+
+`POST /auth/register` cria um usuário **sempre com papel `USER`**. O papel é definido no servidor e o cliente não consegue escolhê-lo.
+
+- O login é normalizado (`trim` + minúsculas) antes de checar duplicidade e salvar.
+- A senha é gravada com hash BCrypt.
+- A resposta nunca inclui a senha.
+
+**Requisição:**
+
+```json
+{ "login": "usuario@email.com", "password": "12345678" }
+```
+
+| Campo | Regras |
+|---|---|
+| `login` | obrigatório, email válido |
+| `password` | obrigatório, de 8 a 72 caracteres (o BCrypt ignora o que passa de 72 bytes) |
+
+**Respostas:**
+
+| Status | Quando | Corpo |
+|---|---|---|
+| `201 Created` | usuário criado | `{ "id": "...", "login": "...", "role": "USER" }` |
+| `400 Bad Request` | falha de validação | `{ "<campo>": "<mensagem>" }` |
+| `409 Conflict` | login já cadastrado | `{ "error": "Login already exists: ..." }` |
+
+```bash
+curl -i -X POST localhost:8080/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"login":"teste@email.com","password":"12345678"}'
+```
 
 ## Estrutura
 
 ```
 src/main/java/com/rosadavi/alcoholic_rat/
-├── AlcoholicRatApplication.java      # entrada da aplicação
+├── AlcoholicRatApplication.java          # entrada da aplicação
 ├── auth/security/
-│   └── SecurityConfiguration.java    # filtros do Spring Security + PasswordEncoder (BCrypt)
+│   └── SecurityConfiguration.java        # filtros do Spring Security + PasswordEncoder (BCrypt)
 ├── config/
-│   └── AdminSeeder.java              # cria o usuário admin na inicialização, se não existir
+│   └── AdminSeeder.java                  # cria o usuário admin na inicialização, se não existir
 ├── controller/
-│   └── HelloWorld.java               # GET / -> "Hello World!"
+│   ├── AuthenticationController.java     # /auth (register)
+│   └── HelloWorld.java                   # GET / -> "Hello World!"
+├── DTO/user/
+│   ├── RegisterRequestDTO.java           # entrada do cadastro (login, password) com validação
+│   └── RegisterResponseDTO.java          # saída do cadastro (id, login, role), sem senha
 ├── domain/user/
-│   ├── User.java                     # entidade de usuário (implementa UserDetails)
-│   └── UserRole.java                 # papéis: ADMIN, USER
+│   ├── User.java                         # entidade de usuário (implementa UserDetails)
+│   └── UserRole.java                     # papéis: ADMIN, USER
+├── exception/
+│   ├── GlobalExceptionHandler.java       # converte exceções em respostas HTTP (400, 409)
+│   └── LoginAlreadyExistsException.java  # login duplicado no cadastro
 ├── repository/
-│   └── UserRepository.java           # acesso a usuários (findByLogin, existsByLogin)
+│   └── UserRepository.java               # acesso a usuários (findByLogin, existsByLogin)
 └── services/
-    └── AuthorizationService.java     # UserDetailsService (carrega usuário por login)
+    ├── AuthorizationService.java         # UserDetailsService (carrega usuário por login)
+    └── UserService.java                  # regra de cadastro (role USER, BCrypt, duplicidade)
 ```
 
 ## Domínio atual
@@ -126,7 +167,7 @@ src/main/java/com/rosadavi/alcoholic_rat/
 | Campo | Tipo | Observação |
 |---|---|---|
 | `id` | UUID (String) | gerado automaticamente |
-| `login` | String | email do usuário, usado como username |
+| `login` | String | email do usuário, usado como username. **Único e obrigatório** |
 | `password` | String | hash BCrypt |
 | `role` | `UserRole` | `ADMIN` ou `USER`, gravado como texto (`@Enumerated(EnumType.STRING)`) |
 
@@ -136,14 +177,16 @@ O papel `ADMIN` recebe as authorities `ROLE_ADMIN` e `ROLE_USER`. O papel `USER`
 
 - API **stateless**: sem sessão no servidor e com CSRF desabilitado.
 - Senhas com hash **BCrypt** (bean `PasswordEncoder` em `SecurityConfiguration`).
+- `POST /auth/register` é público.
 - `POST /product` exige `ROLE_ADMIN`. Essa regra ficou da configuração inicial e a rota ainda não existe.
-- **Todas as outras rotas estão liberadas (`permitAll`), temporariamente,** até existir a autenticação JWT. Depois disso, voltam para `.authenticated()`.
+- **Todas as outras rotas exigem autenticação.** Como o login JWT ainda não existe, hoje elas respondem `403` para qualquer requisição.
 
 ## Endpoints
 
 | Método | Rota | Descrição | Acesso |
 |---|---|---|---|
-| GET | `/` | Retorna "Hello World!" | público |
+| POST | `/auth/register` | Cadastra um usuário com papel `USER` | público |
+| GET | `/` | Retorna "Hello World!" | autenticado |
 
 ## Roadmap
 
@@ -153,10 +196,11 @@ O papel `ADMIN` recebe as authorities `ROLE_ADMIN` e `ROLE_USER`. O papel `USER`
 - [x] Mapear `role` com `@Enumerated(EnumType.STRING)`
 - [x] `PasswordEncoder` (BCrypt)
 - [x] Seed do usuário admin via `.env` (`AdminSeeder`)
+- [x] Endpoint `POST /auth/register` (sempre `USER`, validação, login único)
+- [x] Voltar `anyRequest()` para `.authenticated()`
 - [ ] Lançar `UsernameNotFoundException` quando o login não existir
-- [ ] Endpoints `POST /auth/register` e `POST /auth/login`
+- [ ] Endpoint `POST /auth/login`
 - [ ] Geração e validação de token JWT, com filtro de segurança
-- [ ] Voltar `anyRequest()` para `.authenticated()` depois do JWT
 
 ### Imagens e feed
 - [ ] Entidade de publicação (imagem + metadados + autor + data)
