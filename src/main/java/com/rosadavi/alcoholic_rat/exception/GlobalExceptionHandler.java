@@ -10,7 +10,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestControllerAdvice
-public class GlobalExceptionHandler extends RuntimeException {
+public class GlobalExceptionHandler {
 
     @ExceptionHandler(LoginAlreadyExistsException.class)
     public ResponseEntity<Map<String, String>> handleLoginExists(LoginAlreadyExistsException ex) {
