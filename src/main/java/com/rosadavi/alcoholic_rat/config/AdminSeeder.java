@@ -36,7 +36,7 @@ public class AdminSeeder implements ApplicationRunner {
             return;
         }
 
-        repository.save(new User(adminEmail, passwordEncoder.encode(adminPassword), UserRole.ADMIN));
+        repository.save(new User(adminEmail.trim().toLowerCase(), passwordEncoder.encode(adminPassword), UserRole.ADMIN));
         log.info("Admin user created with email: {}", adminEmail);
     }
 }
