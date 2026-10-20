@@ -270,9 +270,22 @@ Testado em 2026-10-20 subindo a aplicação localmente:
 - [ ] Corrigir o import de `AuthenticationException` no `GlobalExceptionHandler`
 - [ ] Liberar `/error` (hoje está `/errors`) na configuração de segurança
 
+### Bares
+- [ ] Entidade `Bar` (nome, descrição, latitude, longitude)
+- [ ] `POST /bars` restrito a `ROLE_ADMIN`
+- [ ] `GET /bars` para os usuários escolherem o bar ao publicar
+
+### Bebidas
+- [ ] Entidade `Drink` (nome, marca, categoria, teor alcoólico, descrição, imagem)
+- [ ] `POST /drinks` (multipart, com imagem) restrito a `ROLE_ADMIN`
+- [ ] `GET /drinks` e `GET /drinks/{id}/image`
+
 ### Imagens e feed
-- [ ] Entidade de publicação (imagem + metadados + autor + data)
-- [ ] Upload de imagem com metadados
-- [ ] Armazenamento das imagens (disco local / object storage, a definir)
-- [ ] Endpoint de feed paginado
+- [ ] Corrigir antes os dois [problemas conhecidos](#problemas-conhecidos), porque os erros de upload passam pela rota `/error`
+- [ ] Entidade `Post`: autor, imagem, título, descrição, data e hora do ocorrido, latitude e longitude (opcionais), bar, valor da conta e data de criação
+- [ ] Entidade `PostDrink` (itens do post): bebida, tipo de recipiente, quantidade de recipientes e volume de cada um, sempre gravado em ml
+- [ ] Armazenamento das imagens em disco local (`uploads/`, fora do Git), com nome gerado por UUID
+- [ ] `POST /posts` (multipart: JSON `data` + arquivo `image`), com o autor sendo o usuário do token
+- [ ] `GET /posts/{id}/image` para servir a imagem
+- [ ] `GET /posts` com o feed paginado, do mais recente para o mais antigo
 - [x] Remover a regra legada de `/product` da configuração de segurança
