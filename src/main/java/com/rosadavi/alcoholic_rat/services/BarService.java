@@ -15,7 +15,7 @@ public class BarService {
     BarRepository repository;
 
     public Bar register(BarRequestDTO data) {
-        if(repository.existsByName(data.name())) {
+        if(repository.existsByNameIgnoreCase(data.name().trim())) {
             throw new BarAlreadyExistsException(data.name());
         }
 
