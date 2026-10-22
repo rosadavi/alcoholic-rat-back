@@ -2,7 +2,7 @@
 
 SaaS para publicação de imagens com metadados. O usuário envia uma imagem acompanhada de metadados, o sistema armazena ambos e, a partir deles, monta um **feed** com as imagens e suas informações.
 
-> **Status:** estágio inicial. Já existem o cadastro de usuários (`POST /auth/register`), o login com token JWT (`POST /auth/login`), o filtro que valida o token a cada requisição e um seed que cria o administrador inicial. O upload de imagens, os metadados e o feed ainda não foram implementados.
+> **Status:** estágio inicial. Já existem o cadastro de usuários (`POST /auth/register`), o login com token JWT (`POST /auth/login`), o filtro que valida o token a cada requisição, um seed que cria o administrador inicial e o cadastro e a listagem de bares (`/bars`, com cadastro restrito a admin). O upload de imagens, os metadados e o feed ainda não foram implementados.
 
 ## Stack
 
@@ -161,7 +161,7 @@ curl -i -X POST localhost:8080/auth/register \
 |---|---|---|
 | `200 OK` | credenciais válidas | `{ "token": "..." }` |
 | `400 Bad Request` | campo em branco | `{ "<campo>": "<mensagem>" }` |
-| `401 Unauthorized` | login inexistente ou senha errada | vazio (veja [Problemas conhecidos](#problemas-conhecidos)) |
+| `401 Unauthorized` | login inexistente ou senha errada | `{ "error": "Invalid login or password" }` |
 
 ```bash
 curl -i -X POST localhost:8080/auth/login \
@@ -183,7 +183,58 @@ O `SecurityFilter` roda uma vez por requisição, antes do filtro padrão de usu
 2. Valida assinatura, issuer e expiração do token. Se o token for inválido ou estiver expirado, segue sem autenticar.
 3. Busca o usuário pelo login do token. Se ele existir, coloca-o como autenticado no `SecurityContext`, com as authorities do papel dele.
 
-A requisição sem autenticação só passa se a rota for pública. Nas outras, a resposta é `401`.
+A requisição sem autenticação só passa se a rota for pública. Nas outras, a resposta é `401`. Veja as respostas de erro em [Segurança](#respostas-de-erro-de-segurança-401-e-403).
+
+## Bares
+
+Os bares são cadastrados pelo admin e listados para os usuários escolherem ao publicar.
+
+### `POST /bars` (só `ADMIN`)
+
+**Requisição:**
+
+```json
+{
+  "name": "Porks",
+  "description": "bar foda",
+  "latitude": -15.8463984,
+  "longitude": -47.9799406
+}
+```
+
+| Campo | Regras |
+|---|---|
+| `name` | obrigatório, até 100 caracteres. Único, sem diferenciar maiúsculas e minúsculas (`Porks` e `porks` são o mesmo bar) |
+| `description` | opcional, até 1000 caracteres |
+| `latitude` | obrigatório, entre `-90` e `90` |
+| `longitude` | obrigatório, entre `-180` e `180` |
+
+A latitude e a longitude devem ir como número. Como string (`"-15.84"`) também são aceitas, porque o Jackson converte.
+
+**Respostas:**
+
+| Status | Quando | Corpo |
+|---|---|---|
+| `201 Created` | bar criado. Header `Location: /bars/{id}` | `{ "id": "...", "name": "...", "description": "...", "latitude": ..., "longitude": ... }` |
+| `400 Bad Request` | falha de validação | `{ "<campo>": "<mensagem>" }` |
+| `401 Unauthorized` | sem token, ou token inválido ou expirado | `{ "error": "You must be logged in to access this resource!" }` |
+| `403 Forbidden` | token válido, mas de um usuário `USER` | `{ "error": "Only administrators can perform this action!" }` |
+| `409 Conflict` | já existe um bar com esse nome | `{ "error": "Bar already exists: ..." }` |
+
+```bash
+curl -i -X POST localhost:8080/bars \
+  -H 'Authorization: Bearer <token-de-admin>' \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Porks","description":"bar foda","latitude":-15.8463984,"longitude":-47.9799406}'
+```
+
+### `GET /bars` (qualquer usuário autenticado)
+
+Devolve `200 OK` com a lista de todos os bares, no mesmo formato do `201` acima. Se não houver nenhum, devolve `[]`.
+
+```bash
+curl -i localhost:8080/bars -H 'Authorization: Bearer <token>'
+```
 
 ## Estrutura
 
@@ -191,29 +242,38 @@ A requisição sem autenticação só passa se a rota for pública. Nas outras, 
 src/main/java/com/rosadavi/alcoholic_rat/
 ├── AlcoholicRatApplication.java          # entrada da aplicação
 ├── auth/security/
-│   ├── SecurityConfiguration.java        # regras de acesso, AuthenticationManager e PasswordEncoder (BCrypt)
+│   ├── SecurityConfiguration.java        # regras de acesso, respostas 401/403, AuthenticationManager e PasswordEncoder (BCrypt)
 │   ├── SecurityFilter.java               # lê o Bearer token de cada requisição e autentica o usuário
 │   └── TokenService.java                 # gera e valida tokens JWT (HMAC256)
 ├── config/
 │   └── AdminSeeder.java                  # cria o usuário admin na inicialização, se não existir
 ├── controller/
 │   ├── AuthenticationController.java     # /auth (register, login)
+│   ├── BarController.java                # /bars (cadastro e listagem)
 │   └── HelloWorld.java                   # GET / -> "Hello World!"
+├── DTO/bar/
+│   ├── BarRequestDTO.java                # entrada do cadastro de bar (name, description, latitude, longitude) com validação
+│   └── BarResponseDTO.java               # saída de bar (ainda não usado: o controller devolve a entidade Bar)
 ├── DTO/user/
 │   ├── LoginRequestDTO.java              # entrada do login (login, password)
 │   ├── LoginResponseDTO.java             # saída do login (token)
 │   ├── RegisterRequestDTO.java           # entrada do cadastro (login, password) com validação
 │   └── RegisterResponseDTO.java          # saída do cadastro (id, login, role), sem senha
+├── domain/bar/
+│   └── Bar.java                          # entidade de bar
 ├── domain/user/
 │   ├── User.java                         # entidade de usuário (implementa UserDetails)
 │   └── UserRole.java                     # papéis: ADMIN, USER
 ├── exception/
-│   ├── GlobalExceptionHandler.java       # converte exceções em respostas HTTP (400, 409, 401)
+│   ├── BarAlreadyExistsException.java    # bar com nome duplicado
+│   ├── GlobalExceptionHandler.java       # converte exceções dos controllers em respostas HTTP (400, 409, 401)
 │   └── LoginAlreadyExistsException.java  # login duplicado no cadastro
 ├── repository/
+│   ├── BarRepository.java                # acesso a bares (existsByNameIgnoreCase)
 │   └── UserRepository.java               # acesso a usuários (findByLogin, existsByLogin)
 └── services/
     ├── AuthorizationService.java         # UserDetailsService (carrega usuário por login ou lança UsernameNotFoundException)
+    ├── BarService.java                   # regra de cadastro de bar (nome único) e listagem
     └── UserService.java                  # regra de cadastro (role USER, BCrypt, duplicidade)
 ```
 
@@ -230,20 +290,42 @@ src/main/java/com/rosadavi/alcoholic_rat/
 
 O papel `ADMIN` recebe as authorities `ROLE_ADMIN` e `ROLE_USER`. O papel `USER` recebe só `ROLE_USER`.
 
+### Bar (`bars`)
+
+| Campo | Tipo | Observação |
+|---|---|---|
+| `id` | UUID (String) | gerado automaticamente |
+| `name` | String | obrigatório. A unicidade é checada no `BarService` (sem diferenciar maiúsculas e minúsculas), não por constraint no banco |
+| `description` | String (até 1000) | opcional |
+| `latitude` | Double | obrigatório |
+| `longitude` | Double | obrigatório |
+
 ## Segurança
 
 - API **stateless**: sem sessão no servidor e com CSRF desabilitado. A autenticação é feita só pelo token JWT.
 - Senhas com hash **BCrypt** (bean `PasswordEncoder` em `SecurityConfiguration`).
-- Rotas públicas: `GET /`, `POST /auth/register`, `POST /auth/login` e `/errors`.
-- **Todas as outras rotas exigem um token válido.** Sem token, ou com token inválido ou expirado, a resposta é `401 Unauthorized` (configurado com `HttpStatusEntryPoint`).
-- Nenhuma rota exige `ROLE_ADMIN` por enquanto.
+- Rotas públicas: `GET /`, `POST /auth/register`, `POST /auth/login` e `/error` (a rota de erro do Spring Boot).
+- `POST /bars` exige `ROLE_ADMIN` (`hasRole("ADMIN")`).
+- **Todas as outras rotas exigem um token válido.**
+
+### Respostas de erro de segurança (401 e 403)
+
+As duas são configuradas no `exceptionHandling` da `SecurityConfiguration`, e não no `GlobalExceptionHandler`, porque a requisição é barrada no filtro de segurança, antes de chegar ao controller. O Spring escolhe qual das duas chamar:
+
+| Situação | Quem responde | Resposta |
+|---|---|---|
+| Rota protegida sem token, ou com token inválido ou expirado | `authenticationEntryPoint` | `401 { "error": "You must be logged in to access this resource!" }` |
+| Token válido, mas sem o papel exigido (ex.: `USER` em `POST /bars`) | `accessDeniedHandler` | `403 { "error": "Only administrators can perform this action!" }` |
+
+- A mensagem do `403` vale para **qualquer** rota negada por papel. Se outras rotas forem restritas a outros papéis no futuro, convém trocar para um texto neutro.
+- O `401` não diferencia o motivo (sem token, token inválido, token expirado), porque o `SecurityFilter` só segue sem autenticar em todos esses casos.
 
 ### Problemas conhecidos
 
-Testado em 2026-10-20 subindo a aplicação localmente:
+Testado em 2026-10-22 com a aplicação rodando localmente:
 
-- **O handler de `401` do `GlobalExceptionHandler` não é usado.** Ele importa `javax.naming.AuthenticationException`, e não a do Spring Security (`org.springframework.security.core.AuthenticationException`). Por isso o erro de credenciais inválidas não chega nele, e o `401` do login sai com corpo vazio, em vez de `{ "error": "Invalid login or password" }`.
-- **A rota de erro liberada é `/errors`, mas a do Spring Boot é `/error`.** Como `/error` exige autenticação, todo erro que não é tratado por um handler vira `401` sem corpo. Exemplo: um JSON malformado no `POST /auth/register` responde `401`, quando deveria ser `400`. É também por isso que o login inválido acaba em `401`.
+- **O nome do bar é checado sem espaços nas pontas, mas é salvo como veio.** O `BarService` usa `data.name().trim()` no `existsByNameIgnoreCase`, mas cria o `Bar` com `data.name()`. Assim, `" Porks"` é barrado se `Porks` já existir, mas, se for o primeiro, é gravado com o espaço.
+- **Erros não tratados por um handler saem no formato padrão do Spring Boot**, como `{ "timestamp": ..., "status": 400, "error": "Bad Request", "path": ... }` (ex.: JSON malformado), diferente do `{ "error": "..." }` usado no resto da API.
 
 ## Endpoints
 
@@ -252,6 +334,8 @@ Testado em 2026-10-20 subindo a aplicação localmente:
 | POST | `/auth/register` | Cadastra um usuário com papel `USER` | público |
 | POST | `/auth/login` | Autentica e devolve um token JWT | público |
 | GET | `/` | Retorna "Hello World!" | público |
+| POST | `/bars` | Cadastra um bar | `ADMIN` |
+| GET | `/bars` | Lista todos os bares | autenticado |
 
 ## Roadmap
 
@@ -267,13 +351,18 @@ Testado em 2026-10-20 subindo a aplicação localmente:
 - [x] Endpoint `POST /auth/login`
 - [x] Geração e validação de token JWT, com filtro de segurança
 - [x] Responder `401` (em vez de `403`) para requisições sem autenticação
-- [ ] Corrigir o import de `AuthenticationException` no `GlobalExceptionHandler`
-- [ ] Liberar `/error` (hoje está `/errors`) na configuração de segurança
+- [x] Corrigir o import de `AuthenticationException` no `GlobalExceptionHandler`
+- [x] Liberar `/error` (antes estava `/errors`) na configuração de segurança
+- [x] Corpo JSON nas respostas `401` (não autenticado) e `403` (sem permissão)
+- [ ] Diferenciar o motivo do `401` (sem token, token inválido, token expirado)
 
 ### Bares
-- [ ] Entidade `Bar` (nome, descrição, latitude, longitude)
-- [ ] `POST /bars` restrito a `ROLE_ADMIN`
-- [ ] `GET /bars` para os usuários escolherem o bar ao publicar
+- [x] Entidade `Bar` (nome, descrição, latitude, longitude)
+- [x] `POST /bars` restrito a `ROLE_ADMIN`
+- [x] `GET /bars` para os usuários escolherem o bar ao publicar
+- [x] Nome único sem diferenciar maiúsculas e minúsculas (`409` no duplicado)
+- [ ] Salvar o nome com `trim()` (hoje só a checagem de duplicidade usa)
+- [ ] Usar o `BarResponseDTO` na resposta em vez da entidade `Bar`
 
 ### Bebidas
 - [ ] Entidade `Drink` (nome, marca, categoria, teor alcoólico, descrição, imagem)
@@ -281,7 +370,6 @@ Testado em 2026-10-20 subindo a aplicação localmente:
 - [ ] `GET /drinks` e `GET /drinks/{id}/image`
 
 ### Imagens e feed
-- [ ] Corrigir antes os dois [problemas conhecidos](#problemas-conhecidos), porque os erros de upload passam pela rota `/error`
 - [ ] Entidade `Post`: autor, imagem, título, descrição, data e hora do ocorrido, latitude e longitude (opcionais), bar, valor da conta e data de criação
 - [ ] Entidade `PostDrink` (itens do post): bebida, tipo de recipiente, quantidade de recipientes e volume de cada um, sempre gravado em ml
 - [ ] Armazenamento das imagens em disco local (`uploads/`, fora do Git), com nome gerado por UUID
