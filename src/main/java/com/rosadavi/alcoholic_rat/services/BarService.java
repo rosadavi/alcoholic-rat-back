@@ -19,7 +19,7 @@ public class BarService {
             throw new BarAlreadyExistsException(data.name());
         }
 
-        Bar bar = new Bar(data.name(), data.description(), data.latitude(), data.longitude());
+        Bar bar = new Bar(data.name().trim(), data.description(), data.latitude(), data.longitude());
         return repository.save(bar);
     }
 
