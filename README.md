@@ -364,16 +364,18 @@ Testado em 2026-10-22 com a aplicação rodando localmente:
 - [ ] Salvar o nome com `trim()` (hoje só a checagem de duplicidade usa)
 - [ ] Usar o `BarResponseDTO` na resposta em vez da entidade `Bar`
 
-### Bebidas
-- [ ] Entidade `Drink` (nome, marca, categoria, teor alcoólico, descrição, imagem)
-- [ ] `POST /drinks` (multipart, com imagem) restrito a `ROLE_ADMIN`
-- [ ] `GET /drinks` e `GET /drinks/{id}/image`
+### Bebidas (catálogo do admin)
+- [ ] Entidade `Drink`: título, descrição, volume em ml e teor alcoólico (%)
+- [ ] `POST /drinks` restrito a `ROLE_ADMIN`, com título único sem diferenciar maiúsculas e minúsculas (`409` no duplicado)
+- [ ] `GET /drinks` para os usuários escolherem a bebida ao publicar
 
-### Imagens e feed
-- [ ] Entidade `Post`: autor, imagem, título, descrição, data e hora do ocorrido, latitude e longitude (opcionais), bar, valor da conta e data de criação
-- [ ] Entidade `PostDrink` (itens do post): bebida, tipo de recipiente, quantidade de recipientes e volume de cada um, sempre gravado em ml
-- [ ] Armazenamento das imagens em disco local (`uploads/`, fora do Git), com nome gerado por UUID
-- [ ] `POST /posts` (multipart: JSON `data` + arquivo `image`), com o autor sendo o usuário do token
-- [ ] `GET /posts/{id}/image` para servir a imagem
+### Posts e feed
+- [ ] Entidade `Post`: autor, bar (opcional), descrição (opcional) e data de criação. Os dados do post não mudam depois de criado
+- [ ] Entidade `PostDrink` (bebida consumida): cópia dos dados (título, ml, teor alcoólico) no momento do registro, com referência opcional à `Drink` do catálogo. O usuário pode alterar ml e teor de uma bebida do catálogo ou informar uma bebida própria, sem criar nada em `drinks`
+- [ ] Entidade `PostPhoto`: foto do post, com data em que foi adicionada
+- [ ] Armazenamento das fotos em disco local (`uploads/`, fora do Git), com nome gerado por UUID
+- [ ] `POST /posts` (multipart: JSON `data` + arquivos `photos`), com o autor sendo o usuário do token
+- [ ] `POST /posts/{id}/drinks` e `POST /posts/{id}/photos`: só **adicionam** itens, só o autor pode usar e só até 24h depois da criação do post. Não existe rota para editar ou remover bebidas e fotos já salvas
+- [ ] `GET /posts/{id}/photos/{photoId}` para servir a foto
 - [ ] `GET /posts` com o feed paginado, do mais recente para o mais antigo
 - [x] Remover a regra legada de `/product` da configuração de segurança
