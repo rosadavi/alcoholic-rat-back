@@ -2,7 +2,7 @@
 
 SaaS para publicação de imagens com metadados. O usuário envia uma imagem acompanhada de metadados, o sistema armazena ambos e, a partir deles, monta um **feed** com as imagens e suas informações.
 
-> **Status:** estágio inicial. Já existem o cadastro de usuários (`POST /auth/register`), o login com token JWT (`POST /auth/login`), o filtro que valida o token a cada requisição, um seed que cria o administrador inicial, o cadastro e a listagem de bares (`/bars`) e de bebidas (`/drinks`), com cadastro restrito a admin, e a criação de posts com as bebidas consumidas (`POST /posts`). A adição de itens a um post, o upload de fotos e o feed ainda não foram implementados.
+> **Status:** estágio inicial. Já existem o cadastro de usuários (`POST /auth/register`), o login com token JWT (`POST /auth/login`), o filtro que valida o token a cada requisição, um seed que cria o administrador inicial, o cadastro e a listagem de bares (`/bars`) e de bebidas (`/drinks`), com cadastro restrito a admin, a criação de posts com as bebidas consumidas (`POST /posts`) e a adição de bebidas a um post existente (`POST /posts/{id}/drinks`). O upload de fotos (na criação ou depois) e o feed ainda não foram implementados.
 
 ## Stack
 
@@ -359,6 +359,45 @@ curl -i -X POST localhost:8080/posts \
   -d '{"description":"sextou","drinks":[{"title":"caipirinha da casa","volumeMl":300,"alcoholPercentage":15}]}'
 ```
 
+### `POST /posts/{id}/drinks` (só o autor do post)
+
+Adiciona bebidas a um post que já existe. Só o autor do post pode usar, e só até 24h depois de `createdAt` (`Post.EDIT_WINDOW`). As bebidas já salvas não são alteradas nem removidas, e `barId` e `description` do post não mudam.
+
+**Requisição:**
+
+```json
+{
+  "drinks": [
+    { "drinkId": "<id-do-catalogo>" },
+    { "title": "dose de cachaça", "volumeMl": 50, "alcoholPercentage": 40 }
+  ]
+}
+```
+
+Cada item de `drinks` segue as mesmas regras do `POST /posts`. A lista é obrigatória e precisa ter pelo menos um item (`@NotEmpty`).
+
+**Respostas:**
+
+| Status | Quando | Corpo |
+|---|---|---|
+| `200 OK` | bebidas adicionadas | o post completo, no mesmo formato do `201` do `POST /posts` |
+| `400 Bad Request` | falha de validação de campo, incluindo `drinks` vazio ou ausente | `{ "<campo>": "<mensagem>" }` |
+| `400 Bad Request` | bebida própria sem título, ml ou teor | `{ "error": "Drink must have a title, volume and alcohol percentage" }` |
+| `401 Unauthorized` | sem token, ou token inválido ou expirado | `{ "error": "You must be logged in to access this resource!" }` |
+| `403 Forbidden` | o usuário do token não é o autor do post | `{ "error": "Only the author can add drinks to this post." }` |
+| `403 Forbidden` | já se passaram 24h desde a criação do post | `{ "error": "Post can no longer be edited." }` |
+| `404 Not Found` | `id` do post inexistente | `{ "error": "Post not found: ..." }` |
+| `404 Not Found` | `drinkId` inexistente | `{ "error": "Drink not found: ..." }` |
+
+O post é buscado e alterado dentro de um `@Transactional`. As novas `PostDrink` são gravadas no commit por causa do `CascadeType.PERSIST`, sem chamar `postRepository.save`.
+
+```bash
+curl -i -X POST localhost:8080/posts/<id-do-post>/drinks \
+  -H 'Authorization: Bearer <token>' \
+  -H 'Content-Type: application/json' \
+  -d '{"drinks":[{"title":"dose de cachaça","volumeMl":50,"alcoholPercentage":40}]}'
+```
+
 ## Estrutura
 
 ```
@@ -374,7 +413,7 @@ src/main/java/com/rosadavi/alcoholic_rat/
 │   ├── AuthenticationController.java     # /auth (register, login)
 │   ├── BarController.java                # /bars (cadastro e listagem)
 │   ├── DrinkController.java              # /drinks (cadastro e listagem)
-│   ├── PostController.java               # /posts (criação)
+│   ├── PostController.java               # /posts (criação e adição de bebidas)
 │   └── HelloWorld.java                   # GET / -> "Hello World!"
 ├── DTO/bar/
 │   ├── BarRequestDTO.java                # entrada do cadastro de bar (name, description, latitude, longitude) com validação
@@ -383,6 +422,7 @@ src/main/java/com/rosadavi/alcoholic_rat/
 │   └── DrinkRequestDTO.java              # entrada do cadastro de bebida (title, description, volumeMl, alcoholPercentage) com validação
 ├── DTO/post/
 │   ├── PostCreateRequestDTO.java         # entrada da criação de post (barId, description, drinks)
+│   ├── PostDrinkAppendDTO.java           # entrada da adição de bebidas a um post (drinks, @NotEmpty)
 │   ├── PostDrinkRequestDTO.java          # bebida do post (drinkId opcional, title, volumeMl, alcoholPercentage)
 │   ├── PostDrinkResponseDTO.java         # saída de uma bebida do post
 │   ├── PostPhotoResponseDTO.java         # saída de uma foto do post (id, url, contentType, addedAt)
@@ -408,8 +448,10 @@ src/main/java/com/rosadavi/alcoholic_rat/
 │   ├── BarNotFoundException.java         # barId inexistente (404)
 │   ├── DrinkAlreadyExistsException.java  # bebida com título duplicado
 │   ├── DrinkNotFoundException.java       # drinkId inexistente (404)
-│   ├── GlobalExceptionHandler.java       # converte exceções dos controllers em respostas HTTP (400, 401, 404, 409)
+│   ├── GlobalExceptionHandler.java       # converte exceções dos controllers em respostas HTTP (400, 401, 403, 404, 409)
 │   ├── InvalidPostException.java         # post sem bebidas ou bebida própria incompleta (400)
+│   ├── PostForbiddenException.java       # não é o autor do post ou a janela de 24h já fechou (403)
+│   ├── PostNotFoundException.java        # id de post inexistente (404)
 │   └── LoginAlreadyExistsException.java  # login duplicado no cadastro
 ├── repository/
 │   ├── BarRepository.java                # acesso a bares (existsByNameIgnoreCase)
@@ -420,7 +462,7 @@ src/main/java/com/rosadavi/alcoholic_rat/
     ├── AuthorizationService.java         # UserDetailsService (carrega usuário por login ou lança UsernameNotFoundException)
     ├── BarService.java                   # regra de cadastro de bar (nome único) e listagem
     ├── DrinkService.java                 # regra de cadastro de bebida (título único) e listagem
-    ├── PostService.java                  # criação de post (autor do token, bebidas do catálogo ou próprias)
+    ├── PostService.java                  # criação de post e adição de bebidas (autor do token, bebidas do catálogo ou próprias, janela de 24h)
     └── UserService.java                  # regra de cadastro (role USER, BCrypt, duplicidade)
 ```
 
@@ -519,7 +561,7 @@ As duas são configuradas no `exceptionHandling` da `SecurityConfiguration`, e n
 
 Testado em 2026-10-22 com a aplicação rodando localmente:
 
-- **Um item `null` em `drinks` (ex.: `"drinks": [null]`) gera `500`**, porque o `PostService` chama `d.drinkId()` sem checar se o item é nulo. (Identificado lendo o código em 2026-10-26, não testado com a aplicação rodando.)
+- **Um item `null` em `drinks` (ex.: `"drinks": [null]`) gera `500`**, porque o `PostService` chama `d.drinkId()` sem checar se o item é nulo. Vale para `POST /posts` e `POST /posts/{id}/drinks`, já que o `@NotEmpty` aceita uma lista com um item nulo. (Identificado lendo o código em 2026-10-26 e 2026-10-27, não testado com a aplicação rodando.)
 - **Erros não tratados por um handler saem no formato padrão do Spring Boot**, como `{ "timestamp": ..., "status": 400, "error": "Bad Request", "path": ... }` (ex.: JSON malformado), diferente do `{ "error": "..." }` usado no resto da API.
 
 ## Endpoints
@@ -534,6 +576,7 @@ Testado em 2026-10-22 com a aplicação rodando localmente:
 | POST | `/drinks` | Cadastra uma bebida | `ADMIN` |
 | GET | `/drinks` | Lista todas as bebidas | autenticado |
 | POST | `/posts` | Cria um post com as bebidas consumidas | autenticado |
+| POST | `/posts/{id}/drinks` | Adiciona bebidas a um post (até 24h depois da criação) | autor do post |
 
 ## Roadmap
 
@@ -574,7 +617,8 @@ Testado em 2026-10-22 com a aplicação rodando localmente:
 - [ ] Armazenamento das fotos em disco local (`uploads/`, fora do Git), com nome gerado por UUID
 - [x] `POST /posts` (JSON) com bebidas do catálogo ou próprias, com o autor sendo o usuário do token
 - [ ] Aceitar fotos no `POST /posts` (multipart: JSON `data` + arquivos `photos`)
-- [ ] `POST /posts/{id}/drinks` e `POST /posts/{id}/photos`: só **adicionam** itens, só o autor pode usar e só até 24h depois da criação do post. Não existe rota para editar ou remover bebidas e fotos já salvas
+- [x] `POST /posts/{id}/drinks`: só **adiciona** bebidas, só o autor pode usar e só até 24h depois da criação do post
+- [ ] `POST /posts/{id}/photos`: mesmas regras do `/drinks` (só adiciona, só o autor, até 24h). Não existe rota para editar ou remover bebidas e fotos já salvas
 - [ ] `GET /posts/{id}/photos/{photoId}` para servir a foto
 - [ ] `GET /posts` com o feed paginado, do mais recente para o mais antigo
 - [x] Remover a regra legada de `/product` da configuração de segurança
