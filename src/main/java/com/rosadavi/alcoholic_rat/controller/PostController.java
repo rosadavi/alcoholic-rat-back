@@ -1,6 +1,7 @@
 package com.rosadavi.alcoholic_rat.controller;
 
 import com.rosadavi.alcoholic_rat.DTO.post.PostCreateRequestDTO;
+import com.rosadavi.alcoholic_rat.DTO.post.PostDrinkAppendDTO;
 import com.rosadavi.alcoholic_rat.DTO.post.PostResponseDTO;
 import com.rosadavi.alcoholic_rat.domain.user.User;
 import com.rosadavi.alcoholic_rat.services.PostService;
@@ -9,10 +10,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.net.URI;
 
@@ -28,5 +26,13 @@ public class PostController {
                                                   @AuthenticationPrincipal User user) {
         var post = service.register(data, user);
         return ResponseEntity.created(URI.create("/posts/" + post.getId())).body(new PostResponseDTO(post));
+    }
+
+    @PostMapping("/{id}/drinks")
+    public ResponseEntity<PostResponseDTO> appendDrinks(@PathVariable String id,
+                                                       @RequestBody @Valid PostDrinkAppendDTO data,
+                                                       @AuthenticationPrincipal User user) {
+        var post = service.appendDrinks(id, data, user);
+        return ResponseEntity.ok(new PostResponseDTO(post));
     }
 }

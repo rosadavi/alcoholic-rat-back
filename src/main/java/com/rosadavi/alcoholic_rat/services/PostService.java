@@ -1,21 +1,22 @@
 package com.rosadavi.alcoholic_rat.services;
 
 import com.rosadavi.alcoholic_rat.DTO.post.PostCreateRequestDTO;
+import com.rosadavi.alcoholic_rat.DTO.post.PostDrinkAppendDTO;
 import com.rosadavi.alcoholic_rat.DTO.post.PostDrinkRequestDTO;
 import com.rosadavi.alcoholic_rat.domain.bar.Bar;
 import com.rosadavi.alcoholic_rat.domain.drink.Drink;
 import com.rosadavi.alcoholic_rat.domain.post.Post;
 import com.rosadavi.alcoholic_rat.domain.post.PostDrink;
 import com.rosadavi.alcoholic_rat.domain.user.User;
-import com.rosadavi.alcoholic_rat.exception.BarNotFoundException;
-import com.rosadavi.alcoholic_rat.exception.DrinkNotFoundException;
-import com.rosadavi.alcoholic_rat.exception.InvalidPostException;
+import com.rosadavi.alcoholic_rat.exception.*;
 import com.rosadavi.alcoholic_rat.repository.BarRepository;
 import com.rosadavi.alcoholic_rat.repository.DrinkRepository;
 import com.rosadavi.alcoholic_rat.repository.PostRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
 
 @Service
 public class PostService {
@@ -62,5 +63,25 @@ public class PostService {
         }
 
         return postRepository.save(post);
+    }
+
+    @Transactional
+    public Post appendDrinks(String postId, PostDrinkAppendDTO data, User user) {
+        Post post = postRepository.findById(postId)
+                .orElseThrow(() -> new PostNotFoundException(postId));
+
+        if(!post.getAuthor().getId().equals(user.getId())) {
+            throw new PostForbiddenException("Only the author can add drinks to this post.");
+        }
+
+        if(!post.isEditable(Instant.now())) {
+            throw new PostForbiddenException("Post can no longer be edited.");
+        }
+
+        for(PostDrinkRequestDTO d : data.drinks()) {
+            post.addDrink(toPostDrink(post, d));
+        }
+
+        return post;
     }
 }
